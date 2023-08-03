@@ -1,14 +1,16 @@
 import logging
 import random
 import time
+import re
 from selenium import webdriver
 from tqdm import tqdm
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.remote.webelement import WebElement
 from time import sleep
-from typing import Sequence, AnyStr, NoReturn, Optional
+from typing import Sequence, AnyStr, NoReturn, Optional, Literal
 
 
 class TradingViewBot:
@@ -28,6 +30,14 @@ class TradingViewBot:
         self._check_posts = 3  # How many posts to look through in every page
         self._wait_time = 10  # Seconds to wait for page load. If exceeded, page is skipped
 
+        # FIXME
+        self._username = 'Akaguma7'
+        self._password = 'uNAkB5cD'
+
+        # Retrieving domain name from the first link to be able to log in
+        url = re.compile(r'^(?:https?:\/\/)?(?:[^@\/\n]+@)?(?:www\.)?([^:\/?\n]+)')
+        self._main_page = url.match(urls[0])[0]
+
         # If logs_path is not provided (None), creates unusable logger with no output
         if logs_path:
             # Creating a file if it does not exist
@@ -45,6 +55,62 @@ class TradingViewBot:
             self._logger.setLevel(logging.CRITICAL)
 
         self._logger.info('Bot object created')
+        self._login()
+
+    def _login(self) -> Literal[True, False]:
+        """
+        If not already, tries to log in to the website.
+
+        :return: Returns True if was already logged in, False otherwise
+        """
+        self._driver.get(self._main_page)
+        account_btns = self._driver.find_elements(By.CSS_SELECTOR, 'body > div.tv-main > div.tv-header.tv-header__top.js-site-header-container.tv-header--sticky > div.tv-header__inner > div.tv-header__area.tv-header__area--user > button.tv-header__user-menu-button.js-header-user-menu-button')
+        # children = [element.tag_name for element in account_btn.find_elements(By.CSS_SELECTOR, '*')]
+        if 'logged' in account_btns[0].get_attribute('class'):
+            if account_btns[0].is_displayed():
+                self._logger.info('Logged button is displayed. Already logged in. Starting processing URLs.')
+                return True
+            else:
+                btn = account_btns[1]
+        else:
+            if account_btns[1].is_displayed():
+                self._logger.info('Logged button is displayed. Already logged in. Starting processing URLs.')
+                return True
+            else:
+                btn = account_btns[0]
+
+        self._logger.info('Need to log in first')
+        btn.click()
+
+        # Attempt to get to authorization screen step by step
+        sign_in_btn = WebDriverWait(self._driver, 5).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, 'span.label-mDJVFqQ3.label-jFqVJoPk.label-mDJVFqQ3.label-YQGjel_5.js-main-menu-dropdown-link-title'))
+        )
+        sign_in_btn.click()
+
+        email_btn = WebDriverWait(self._driver, 10).until(
+            EC.presence_of_element_located((By.NAME, 'Email'))
+        )
+        email_btn.click()
+
+        email_input = WebDriverWait(self._driver, 10).until(
+            EC.presence_of_element_located((By.ID, 'id_username'))
+        )
+        email_input.clear()
+        email_input.send_keys(self._username)
+
+        password_input = WebDriverWait(self._driver, 10).until(
+            EC.presence_of_element_located((By.ID, 'id_password'))
+        )
+        password_input.clear()
+        password_input.send_keys(self._password)
+
+        submit_btn = WebDriverWait(self._driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, '.submitButton-LQwxK8Bm'))
+        )
+        submit_btn.click()
+
+        return False
 
     def run(self) -> NoReturn:
         """
@@ -64,44 +130,73 @@ class TradingViewBot:
 
         :return: None
         """
-        cards = self._driver.find_elements(
-            By.CSS_SELECTOR,
-            '#tv-content > div.tv-layout-width > div > div.tv-feed__page.tv-feed__page--no-vindent.published-charts.i-active > div.tv-card-container > div > div > div > div'
+        # Waits for the pop up window to load
+        cards = WebDriverWait(self._driver, self._wait_time).until(
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR,
+                                                 '#tv-content div.tv-card-container > div > div > div > div'))
         )
+
         cards = cards[:self._check_posts]
-        comment_btns = [card.find_element(By.CSS_SELECTOR,
-                                          'div.tv-social-row.tv-widget-idea__social-row > div.tv-social-row__end.tv-social-row__end--adjusted > a')
-                        for card in cards]
-        flag_btns = [card.find_element(By.CSS_SELECTOR,
-                                       'div.tv-social-row.tv-widget-idea__social-row > div.tv-social-row__end.tv-social-row__end--adjusted > span.tv-card-social-item.apply-common-tooltip.tv-card-social-item--favorite.tv-card-social-item--button.tv-card-social-item--rounded.tv-social-row__item.tv-social-row__item--rounded')
-                     for card in cards]
+        comment_btns = [WebDriverWait(card, self._wait_time).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR,
+                                            'div.tv-social-row.tv-widget-idea__social-row > div.tv-social-row__end.tv-social-row__end--adjusted > a')))
+            for card in cards]
+        flag_btns = [WebDriverWait(card, self._wait_time).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR,
+                                            'div.tv-social-row.tv-widget-idea__social-row > div.tv-social-row__end.tv-social-row__end--adjusted > span.tv-card-social-item.apply-common-tooltip.tv-card-social-item--favorite.tv-card-social-item--button.tv-card-social-item--rounded.tv-social-row__item.tv-social-row__item--rounded')))
+            for card in cards]
 
         for i in range(self._check_posts):
             self._process_card(comment_btns[i], flag_btns[i])
 
-    def _process_card(self, comment_btn: Sequence[WebElement], flag_btn: Sequence[WebElement]) -> NoReturn:
-        """"""
+    def _process_card(self, comment_btn: WebElement, flag_btn: WebElement) -> NoReturn:
+        """
+        For every found card this method looks for comment and flag buttons. If flag is marked, then the card is
+        skipped. Otherwise, it clicks comments button, waits for it to load and writes a comment in a pop up window
+
+        :param comment_btn: comment button element
+        :param flag_btn: flag button element
+        :return: None
+        """
         if 'i-checked' in flag_btn.get_attribute('class'):
             return
 
         self._action.move_to_element(comment_btn)
         self._action.perform()
-        self._action.click(comment_btn)
+        comment_btn.click()
 
-        comment_section = WebDriverWait(self._driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, '.js-textarea'))
+        # Waits for the pop up window to load
+        comment_section = WebDriverWait(self._driver, self._wait_time).until(
+            EC.presence_of_element_located((By.NAME, 'comment'))
         )
         self._action.move_to_element(comment_section)
         self._action.perform()
+        comment_section.click()
 
+        # Picks and inserts a random comment
         comment = random.choice(self._comments)
         comment_section.clear()
         comment_section.send_keys(comment)
 
-        post_comment_btn = self._driver.find_element(By.CSS_SELECTOR, '.tv-button__loader')
+        # JS_ADD_TEXT_TO_INPUT = """
+        #   var elm = arguments[0], txt = arguments[1];
+        #   elm.value += txt;
+        #   elm.dispatchEvent(new Event('change'));
+        #   """
+        # self._driver.execute_script(JS_ADD_TEXT_TO_INPUT, comment_section, comment)
+
+        post_comment_btn = self._driver.find_element(By.CSS_SELECTOR, '#chart-view-comment-form > div.form-container-oUJZRkMk > form > div > button.button-R4AggD4r.button-D4RPB3ZC.size-small-D4RPB3ZC.color-brand-D4RPB3ZC.variant-primary-D4RPB3ZC')
         self._action.move_to_element(post_comment_btn)
         self._action.perform()
-        self._action.click()
+        post_comment_btn.click()
+
+        close_btn = WebDriverWait(self._driver, self._wait_time).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, '#overlap-manager-root > div > div.tv-dialog__modal-wrap > div > div > div > div.tv-chart-view__dialog-close.tv-dialog__close.tv-dialog__close--new-style.js-dialog__close > svg'))
+        )
+
+        self._action.move_to_element(close_btn)
+        self._action.perform()
+        close_btn.click()
 
     def stop(self):
         self._driver.quit()
