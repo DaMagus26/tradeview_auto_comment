@@ -223,8 +223,7 @@ class TradingViewBot:
         remember_me.click()
         self._sleep = old_sleep
 
-
-        sleep(30)
+        sleep(45)
 
     def run(self) -> NoReturn:
         """
@@ -252,14 +251,17 @@ class TradingViewBot:
 
         cards = cards[:self._check_posts]
         comment_btns = [WebDriverWait(card, self._wait_time).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR,
-                                            'div.tv-social-row.tv-widget-idea__social-row > div.tv-social-row__end.tv-social-row__end--adjusted > a')))
+            EC.presence_of_element_located((By.XPATH,
+                                            '//div[5]/div[2]/a')))
             for card in cards]
         flag_btns = [WebDriverWait(card, self._wait_time).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR,
-                                            'div.tv-social-row.tv-widget-idea__social-row > div.tv-social-row__end.tv-social-row__end--adjusted > span.tv-card-social-item.apply-common-tooltip.tv-card-social-item--favorite.tv-card-social-item--button.tv-card-social-item--rounded.tv-social-row__item.tv-social-row__item--rounded')))
+            EC.presence_of_element_located((By.XPATH,
+                                            '//div[5]/div[2]/span[2]')))
             for card in cards]
 
+        print(self._driver.title)
+        print('Cards:', len(cards))
+        print('btns:', len(flag_btns))
         for i in range(self._check_posts):
             sleep(int(self._sleep) and 2)
             self._process_card(comment_btns[i], flag_btns[i])
@@ -274,6 +276,7 @@ class TradingViewBot:
         :return: None
         """
         if 'i-checked' in flag_btn.get_attribute('class'):
+            print('Clicked')
             return
 
         self._action.move_to_element(comment_btn)
